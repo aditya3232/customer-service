@@ -2,6 +2,7 @@ package config
 
 import (
 	"customer-service/common/util"
+	"os"
 
 	"github.com/sirupsen/logrus"
 )
@@ -30,10 +31,10 @@ type Database struct {
 }
 
 func Init() {
-	err := util.BindFromJSON(&Config, "config", ".")
+	err := util.BindFromJSON(&Config, "config.json", ".")
 	if err != nil {
 		logrus.Infof("failed to bind config: %v", err)
-		err = util.BindFromEnv(&Config)
+		err = util.BindFromConsul(&Config, os.Getenv("CONSUL_HTTP_URL"), os.Getenv("CONSUL_HTTP_PATH"))
 		if err != nil {
 			panic(err)
 		}

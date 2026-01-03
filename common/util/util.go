@@ -1,11 +1,14 @@
 package util
 
 import (
+	"os"
+	"reflect"
+	"strconv"
+
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
-// membaca file config.json
 func BindFromJSON(dest any, filename, path string) error {
 	v := viper.New()
 
@@ -27,43 +30,70 @@ func BindFromJSON(dest any, filename, path string) error {
 	return nil
 }
 
-// Membaca konfigurasi dari .env
-func ReadFromEnv() map[string]any {
-	v := viper.New()
-	v.AutomaticEnv() // Aktifkan pembacaan dari environment variables
+func SetEnvFromConsulKV(v *viper.Viper) error {
+	env := make(map[string]any)
 
-	configMap := map[string]any{
-		"port":                  v.GetInt("PORT"),
-		"appName":               v.GetString("APP_NAME"),
-		"appEnv":                v.GetString("APP_ENV"),
-		"rateLimiterMaxRequest": v.GetFloat64("RATE_LIMITER_MAX_REQUEST"),
-		"rateLimiterTimeSecond": v.GetInt("RATE_LIMITER_TIME_SECOND"),
-
-		// Database
-		"database.host":                  v.GetString("DB_HOST"),
-		"database.port":                  v.GetInt("DB_PORT"),
-		"database.name":                  v.GetString("DB_NAME"),
-		"database.username":              v.GetString("DB_USERNAME"),
-		"database.password":              v.GetString("DB_PASSWORD"),
-		"database.maxOpenConnections":    v.GetInt("DB_MAX_OPEN_CONNECTIONS"),
-		"database.maxLifeTimeConnection": v.GetInt("DB_MAX_LIFETIME_CONNECTION"),
-		"database.maxIdleConnections":    v.GetInt("DB_MAX_IDLE_CONNECTIONS"),
-		"database.maxIdleTime":           v.GetInt("DB_MAX_IDLE_TIME"),
+	err := v.Unmarshal(&env)
+	if err != nil {
+		logrus.Errorf("failed to unmarshal: %v", err)
+		return err
 	}
 
-	return configMap
+	for k, v := range env {
+		var (
+			valOf = reflect.ValueOf(v)
+			val   string
+		)
+
+		switch valOf.Kind() {
+		case reflect.String:
+			val = valOf.String()
+		case reflect.Int:
+			val = strconv.Itoa(int(valOf.Int()))
+		case reflect.Uint:
+			val = strconv.Itoa(int(valOf.Uint()))
+		case reflect.Float32:
+			val = strconv.Itoa(int(valOf.Float()))
+		case reflect.Float64:
+			val = strconv.Itoa(int(valOf.Float()))
+		case reflect.Bool:
+			val = strconv.FormatBool(valOf.Bool())
+		}
+
+		err = os.Setenv(k, val)
+		if err != nil {
+			logrus.Errorf("failed to set env: %v", err)
+			return err
+		}
+	}
+
+	return nil
 }
 
-func BindFromEnv(dest any) error {
+func BindFromConsul(dest any, endPoint, path string) error {
 	v := viper.New()
-	v.AutomaticEnv()
-
-	for key, value := range ReadFromEnv() {
-		v.Set(key, value)
+	v.SetConfigType("json")
+	err := v.AddRemoteProvider("consul", endPoint, path)
+	if err != nil {
+		logrus.Errorf("failed to add remote provider: %v", err)
+		return err
 	}
 
-	err := v.Unmarshal(dest)
+	err = v.ReadRemoteConfig()
 	if err != nil {
+		logrus.Errorf("failed to read remote config: %v", err)
+		return err
+	}
+
+	err = v.Unmarshal(&dest)
+	if err != nil {
+		logrus.Errorf("failed to unmarshal: %v", err)
+		return err
+	}
+
+	err = SetEnvFromConsulKV(v)
+	if err != nil {
+		logrus.Errorf("failed to set env from consul kv: %v", err)
 		return err
 	}
 
