@@ -52,43 +52,7 @@ var command = &cobra.Command{
 		service := services.NewServiceRegistry(repository)
 		controller := controllers.NewControllerregistry(service)
 
-		router := gin.Default()
-		router.NoRoute(func(c *gin.Context) {
-			c.JSON(http.StatusNotFound, response.Response{
-				Status:  constants.Error,
-				Message: fmt.Sprintf("Path %s", http.StatusText(http.StatusNotFound)),
-			})
-		})
-		router.GET("/", func(c *gin.Context) {
-			c.JSON(http.StatusOK, response.Response{
-				Status:  constants.Success,
-				Message: "Welcome to Customer Service",
-			})
-		})
-		router.Use(func(c *gin.Context) {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH")
-			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			if c.Request.Method == "OPTIONS" {
-				c.AbortWithStatus(204)
-				return
-			}
-			c.Next()
-		})
-
-		lmt := tollbooth.NewLimiter(
-			config.Config.RateLimiterMaxRequest,
-			&limiter.ExpirableOptions{
-				DefaultExpirationTTL: time.Duration(config.Config.RateLimiterTimeSecond) * time.Second,
-			})
-		router.Use(middlewares.RateLimiter(lmt))
-
-		group := router.Group("/api/v1")
-		route := routes.NewRouteRegistry(controller, group)
-		route.Serve()
-
-		port := fmt.Sprintf(":%d", config.Config.Port)
-		router.Run(port)
+		serveHttp(controller)
 	},
 }
 
@@ -97,4 +61,45 @@ func Run() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func serveHttp(controller controllers.IControllerRegistry) {
+	router := gin.Default()
+	router.Use(middlewares.HandlePanic())
+	router.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, response.Response{
+			Status:  constants.Error,
+			Message: fmt.Sprintf("Path %s", http.StatusText(http.StatusNotFound)),
+		})
+	})
+	router.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, response.Response{
+			Status:  constants.Success,
+			Message: "Welcome to Customer Service",
+		})
+	})
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-service-name, x-request-at, x-api-key")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
+	lmt := tollbooth.NewLimiter(
+		config.Config.RateLimiterMaxRequest,
+		&limiter.ExpirableOptions{
+			DefaultExpirationTTL: time.Duration(config.Config.RateLimiterTimeSecond) * time.Second,
+		})
+	router.Use(middlewares.RateLimiter(lmt))
+
+	group := router.Group("/api/v1")
+	route := routes.NewRouteRegistry(controller, group)
+	route.Serve()
+
+	port := fmt.Sprintf(":%d", config.Config.Port)
+	router.Run(port)
 }
